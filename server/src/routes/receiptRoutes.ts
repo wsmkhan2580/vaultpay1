@@ -1,0 +1,28 @@
+import { Router } from 'express';
+import * as receiptController from '../controllers/receiptController';
+import { authenticate } from '../middleware/authenticate';
+import { authorize } from '../middleware/authorize';
+
+const router = Router();
+
+// Local-storage signed download endpoint is intentionally public (no auth
+// middleware) because it's accessed via a direct link the browser follows,
+// exactly like a native S3 pre-signed URL would be. Its security comes
+// entirely from the short-lived HMAC signature verified inside the
+// controller, not from a session — same trust model as S3.
+router.get('/download-local', receiptController.downloadLocalReceipt);
+
+router.use(authenticate);
+
+router.get('/invoice/:invoiceId', authorize('CLIENT'), receiptController.getMyReceiptsForInvoice);
+// One-step: create-if-missing + stream the PDF for one of the client's own PAID invoices.
+router.get('/me/invoice/:invoiceId/download', authorize('CLIENT'), receiptController.downloadMyReceiptForInvoice);
+router.get('/me/:id/download-url', authorize('CLIENT'), receiptController.getMyReceiptDownloadUrl);
+router.get('/me/:id/download', authorize('CLIENT'), receiptController.downloadMyReceipt);
+
+router.get('/:id/download-url', authorize('ADMIN'), receiptController.getReceiptDownloadUrlAdmin);
+router.get('/:id/download', authorize('ADMIN'), receiptController.downloadReceiptAdmin);
+router.get('/admin/invoice/:invoiceId', authorize('ADMIN'), receiptController.listReceiptsForInvoiceAdmin);
+router.post('/admin/invoice/:invoiceId/generate', authorize('ADMIN'), receiptController.generateReceiptForInvoiceAdmin);
+
+export default router;
