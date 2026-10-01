@@ -1,3 +1,7 @@
+
+
+
+import https from 'https';
 import nodemailer, { Transporter } from 'nodemailer';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
@@ -46,6 +50,58 @@ function wrapTemplate(title: string, bodyHtml: string): string {
 }
 
 /**
+ * Sends through Brevo's HTTPS API (port 443), which is never blocked by hosting providers, unlike SMTP.
+ * Uses Node's built-in https module, so no new dependency is needed.
+ */
+function sendViaBrevo(
+  to: string,
+  subject: string,
+  html: string,
+  attachment?: { filename: string; content: Buffer }
+): Promise<boolean> {
+  const body = JSON.stringify({
+    sender: { email: env.brevoSenderEmail, name: env.brevoSenderName },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+    ...(attachment ? { attachment: [{ name: attachment.filename, content: attachment.content.toString('base64') }] } : {}),
+  });
+
+  return new Promise<boolean>((resolve) => {
+    const req = https.request(
+      {
+        hostname: 'api.brevo.com',
+        path: '/v3/smtp/email',
+        method: 'POST',
+        headers: {
+          'api-key': env.brevoApiKey,
+          'content-type': 'application/json',
+          accept: 'application/json',
+          'content-length': Buffer.byteLength(body),
+        },
+        timeout: 15_000,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          const ok = (res.statusCode || 500) >= 200 && (res.statusCode || 500) < 300;
+          if (!ok) logger.error('Brevo rejected the email', { to, subject, status: res.statusCode, response: data.slice(0, 300) });
+          resolve(ok);
+        });
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error('Brevo request timed out')));
+    req.on('error', (err) => {
+      logger.error('Failed to send email via Brevo', { to, subject, error: err.message });
+      resolve(false);
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
  * Returns true only when the message was actually handed to the SMTP server.
  * Failures are logged and swallowed (email must never break the business flow),
  * but callers can still tell "sent" from "not sent" — e.g. so a receipt is not
@@ -57,6 +113,8 @@ async function sendMail(
   html: string,
   attachment?: { filename: string; content: Buffer }
 ): Promise<boolean> {
+  if (env.brevoApiKey && env.brevoSenderEmail) return sendViaBrevo(to, subject, html, attachment);
+
   const t = getTransporter();
   if (!t) {
     logger.info('Email suppressed (SMTP not configured)', { to, subject });

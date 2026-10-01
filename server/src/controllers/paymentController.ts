@@ -1,3 +1,4 @@
+
 import { Request, Response } from 'express';
 import { asyncHandler } from '../utils/asyncHandler';
 import { sendSuccess } from '../utils/ApiResponse';
@@ -25,4 +26,12 @@ export const listPaymentsAdmin = asyncHandler(async (req: Request, res: Response
 export const getMyPayment = asyncHandler(async (req: Request, res: Response) => {
   const payment = await paymentService.getPaymentForClient(req.params.id, req.user!.id);
   sendSuccess(res, 200, 'Payment retrieved', payment);
+});
+
+export const confirmPayment = asyncHandler(async (req: Request, res: Response) => {
+  const result = await paymentService.confirmPaymentForInvoice({
+    clientUserId: req.user!.id,
+    invoiceId: req.body.invoiceId,
+  });
+  sendSuccess(res, 200, 'Payment status checked', result);
 });

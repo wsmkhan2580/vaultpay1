@@ -1,3 +1,5 @@
+
+
 import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -16,6 +18,7 @@ import receiptRoutes from './routes/receiptRoutes';
 import clientRoutes from './routes/clientRoutes';
 import adminRoutes from './routes/adminRoutes';
 import webhookRoutes from './routes/webhookRoutes';
+import realtimeRoutes from './routes/realtimeRoutes';
 
 export function createApp(): Express {
   const app = express();
@@ -81,6 +84,7 @@ export function createApp(): Express {
   app.use('/api/receipts', receiptRoutes);
   app.use('/api/clients', clientRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/realtime', realtimeRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

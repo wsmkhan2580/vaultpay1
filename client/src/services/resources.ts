@@ -1,3 +1,4 @@
+
 import { api } from './api';
 import type {
   AdminOverview,
@@ -41,6 +42,8 @@ export const invoiceApi = {
 // --- Payments ---
 export const paymentApi = {
   checkout: (invoiceId: string) => api.post<{ data: { checkoutUrl: string } }>('/payments/checkout', { invoiceId }),
+  // Asks the server to verify the Stripe session right now (used when returning from Stripe Checkout).
+  confirm: (invoiceId: string) => api.post<{ data: { status: string } }>('/payments/confirm', { invoiceId }),
   listAdmin: (params: { clientId?: string; status?: string; page?: number }) =>
     api.get<{ data: Paginated<Payment> }>('/payments', { params }),
 };

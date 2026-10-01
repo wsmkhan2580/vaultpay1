@@ -1,3 +1,4 @@
+
 import { stripe } from '../config/stripe';
 import { Invoice } from '../models/Invoice';
 import { Payment } from '../models/Payment';
@@ -6,6 +7,7 @@ import { ApiError } from '../utils/ApiError';
 import { env } from '../config/env';
 import { recordAudit } from './auditService';
 import { toMinorUnits } from '../utils/money';
+import { handleCheckoutCompleted } from './webhookService';
 
 const PAYABLE_STATUSES = new Set(['PENDING', 'OVERDUE']);
 
@@ -124,4 +126,32 @@ export async function getPaymentForClient(paymentId: string, clientUserId: strin
   const payment = await Payment.findOne({ _id: paymentId, clientId: client._id });
   if (!payment) throw ApiError.notFound('Payment not found');
   return payment;
+}
+
+/**
+ * Called by the client right after Stripe redirects back with ?payment=success.
+ * Instead of waiting for Stripe's webhook (which can take several seconds, or longer while a free-tier
+ * server is waking up) we ask Stripe directly whether the checkout session is paid, and finalize through
+ * the SAME code the webhook uses. It is idempotent: if the webhook already finalized the payment, or
+ * wins the race, nothing happens twice. The client can't "claim" a payment: only Stripe's own answer counts.
+ */
+export async function confirmPaymentForInvoice(params: { clientUserId: string; invoiceId: string }) {
+  const client = await Client.findOne({ userId: params.clientUserId });
+  if (!client) throw ApiError.notFound('Client profile not found');
+
+  // Ownership-aware query, same as checkout creation.
+  const invoice = await Invoice.findOne({ _id: params.invoiceId, clientId: client._id });
+  if (!invoice) throw ApiError.notFound('Invoice not found');
+  if (invoice.status === 'PAID') return { status: invoice.status };
+
+  const payment = await Payment.findOne({ invoiceId: invoice._id, status: 'PENDING' }).sort({ createdAt: -1 });
+  if (!payment || !payment.stripeCheckoutSessionId) return { status: invoice.status };
+
+  const session = await stripe.checkout.sessions.retrieve(payment.stripeCheckoutSessionId);
+  if (session.payment_status === 'paid') {
+    await handleCheckoutCompleted(session);
+  }
+
+  const fresh = await Invoice.findById(invoice._id).select('status');
+  return { status: fresh ? fresh.status : invoice.status };
 }

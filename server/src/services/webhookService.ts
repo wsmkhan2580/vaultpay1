@@ -1,3 +1,5 @@
+
+
 import mongoose from 'mongoose';
 import Stripe from 'stripe';
 import { Invoice } from '../models/Invoice';
@@ -9,6 +11,7 @@ import { recordAudit } from './auditService';
 import { generateAndDeliverReceipt } from './receiptService';
 import { sendPaymentConfirmationEmail } from './emailService';
 import { toMinorUnits } from '../utils/money';
+import { emitToUser } from './realtimeService';
 
 /**
  * Processes a verified Stripe webhook event. The caller (webhookController)
@@ -66,7 +69,8 @@ function isDuplicateKeyError(err: unknown): boolean {
   return Boolean(err && typeof err === 'object' && 'code' in err && (err as { code?: number }).code === 11000);
 }
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
+// Exported so the "confirm on return from Stripe" endpoint (paymentService) can reuse the exact same logic.
+export async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const payment = await Payment.findOne({ stripeCheckoutSessionId: session.id });
   if (!payment) {
     logger.warn('checkout.session.completed for unknown session', { sessionId: session.id });
@@ -150,9 +154,14 @@ async function handlePaymentFailed(intent: Stripe.PaymentIntent): Promise<void> 
  * state if e.g. the email provider is briefly down.
  */
 async function finalizePayment(paymentId: string, stripePaymentIntentId?: string): Promise<void> {
+  // The webhook and the "confirm on return" endpoint can run at the same moment. Only the call that
+  // really flips the payment to SUCCEEDED may run the follow-up steps below (audit, receipt, emails),
+  // otherwise the client would get duplicate emails.
+  let didFinalize = false as boolean;
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
+      didFinalize = false; // withTransaction can retry this callback
       const payment = await Payment.findById(paymentId).session(session);
       if (!payment || payment.status === 'SUCCEEDED') return;
 
@@ -171,10 +180,13 @@ async function finalizePayment(paymentId: string, stripePaymentIntentId?: string
       payment.paidAt = new Date();
       if (stripePaymentIntentId) payment.stripePaymentIntentId = stripePaymentIntentId;
       await payment.save({ session });
+      didFinalize = true;
     });
   } finally {
     await session.endSession();
   }
+
+  if (!didFinalize) return; // someone else already finalized this payment and ran the follow-up steps
 
   const payment = await Payment.findById(paymentId);
   const invoice = payment ? await Invoice.findById(payment.invoiceId) : null;
@@ -212,6 +224,9 @@ async function finalizePayment(paymentId: string, stripePaymentIntentId?: string
     });
   }
 
+  // Live update: the client's open invoice page flips to PAID instantly (no refresh needed).
+  emitToUser(client.userId.toString(), 'invoice:paid', { invoiceId: invoice._id.toString() });
+
   void sendPaymentConfirmationEmail(client, invoice, payment).catch((err) =>
     logger.error('Payment confirmation email failed', {
       paymentId: payment._id.toString(),
@@ -219,3 +234,4 @@ async function finalizePayment(paymentId: string, stripePaymentIntentId?: string
     })
   );
 }
+

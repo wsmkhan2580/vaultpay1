@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { invoiceApi } from '../../services/resources';
+import { useRealtime } from '../../services/realtime';
 import { useAuth } from '../../context/AuthContext';
 import type { Invoice } from '../../types';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -13,12 +15,21 @@ export default function ClientDashboard() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadInvoices = useCallback(
+    () => invoiceApi.listMine().then((res) => setInvoices(res.data.data)),
+    []
+  );
+
   useEffect(() => {
-    invoiceApi
-      .listMine()
-      .then((res) => setInvoices(res.data.data))
-      .finally(() => setLoading(false));
-  }, []);
+    loadInvoices().finally(() => setLoading(false));
+  }, [loadInvoices]);
+
+  // Live updates: a new invoice from the admin, or a payment, shows up instantly without a page refresh.
+  useRealtime((event) => {
+    if (event === 'invoice:created' || event === 'invoice:paid' || event === 'resync') {
+      loadInvoices().catch(() => undefined);
+    }
+  });
 
   const outstanding = invoices.filter((i) => i.status === 'PENDING' || i.status === 'OVERDUE');
   const outstandingTotal = outstanding.reduce((sum, i) => sum + i.amount, 0);

@@ -1,6 +1,8 @@
+
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { invoiceApi, paymentApi, receiptApi } from '../../services/resources';
+import { useRealtime } from '../../services/realtime';
 import type { Invoice, Receipt } from '../../types';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import StatusBadge from '../../components/StatusBadge';
@@ -50,6 +52,22 @@ export default function ClientInvoiceDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Live updates: the server pushes an event the moment the payment is finalized, so the page flips to
+  // PAID (and the receipt button appears) without any refresh.
+  useRealtime((event) => {
+    if (event === 'invoice:paid' || event === 'invoice:created' || event === 'resync') load(true);
+  });
+
+  // Right after returning from Stripe Checkout, ask the server to verify the payment with Stripe directly
+  // instead of waiting for the webhook. The webhook still works as a backup; both paths are idempotent.
+  useEffect(() => {
+    if (paymentFlag !== 'success' || !id) return;
+    paymentApi
+      .confirm(id)
+      .then(() => load(true))
+      .catch(() => undefined);
+  }, [paymentFlag, id, load]);
 
   // After returning from Stripe Checkout, the invoice is finalized by a webhook
   // a few seconds later. Poll quietly until it flips to PAID.

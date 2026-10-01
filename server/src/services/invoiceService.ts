@@ -1,9 +1,13 @@
+
+
+
 import { Invoice, IInvoiceItem, InvoiceStatus } from '../models/Invoice';
 import { Client } from '../models/Client';
 import { ApiError } from '../utils/ApiError';
 import { nextInvoiceNumber } from './invoiceNumberService';
 import { recordAudit } from './auditService';
 import { sendInvoiceCreatedEmail } from './emailService';
+import { emitToUser } from './realtimeService';
 import { Payment } from '../models/Payment';
 import { stripe } from '../config/stripe';
 import { logger } from '../utils/logger';
@@ -76,6 +80,9 @@ export async function createInvoice(params: {
 
   // Best-effort notification; failure to email must not fail invoice creation.
   sendInvoiceCreatedEmail(client, invoice).catch(() => undefined);
+
+  // Live update: if the client has the portal open, its dashboard refreshes instantly (no page reload).
+  emitToUser(client.userId.toString(), 'invoice:created', { invoiceId: invoice._id.toString() });
 
   return invoice;
 }

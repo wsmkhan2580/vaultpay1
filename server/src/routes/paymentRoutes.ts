@@ -1,3 +1,7 @@
+
+
+
+
 import { Router } from 'express';
 import * as paymentController from '../controllers/paymentController';
 import { authenticate } from '../middleware/authenticate';
@@ -16,6 +20,13 @@ router.post(
   paymentRateLimiter,
   validate(createPaymentSchema),
   paymentController.createCheckoutSession
+);
+router.post(
+  '/confirm',
+  authorize('CLIENT'),
+  paymentRateLimiter,
+  validate(createPaymentSchema),
+  paymentController.confirmPayment
 );
 router.get('/me/:id', authorize('CLIENT'), paymentController.getMyPayment);
 router.get('/', authorize('ADMIN'), paymentController.listPaymentsAdmin);

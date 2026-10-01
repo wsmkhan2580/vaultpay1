@@ -1,3 +1,4 @@
+
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -47,6 +48,12 @@ export const env = {
   smtpUser: process.env.SMTP_USER || '',
   smtpPassword: process.env.SMTP_PASSWORD || '',
   smtpFrom: process.env.SMTP_FROM || 'VaultPay <no-reply@vaultpay.local>',
+
+  // HTTP email API (Brevo). Works on hosts that block SMTP ports (Render free tier). When BREVO_API_KEY and
+  // BREVO_SENDER_EMAIL are set, it is used instead of SMTP.
+  brevoApiKey: process.env.BREVO_API_KEY || '',
+  brevoSenderEmail: process.env.BREVO_SENDER_EMAIL || '',
+  brevoSenderName: process.env.BREVO_SENDER_NAME || 'VaultPay',
 
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
   clientOrigins,
